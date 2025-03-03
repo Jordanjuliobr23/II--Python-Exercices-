@@ -5,14 +5,17 @@ import time
 import requests 
 import struct
 
-# configuração do servidor
 
 PORTA = 31471
 IP = '0.0.0.0'
 WINDOW_SIZE = 1000000 # Tamanho da janela responsável por buscar o nonce
-TIMEOUT = 60 # Tempo limite antes de fechar a conexão para cliente inativos
-pendentes = [] # Lista das transações pendentes
-clientes = {}  # Dicionários com os clientes conectados
+TIMEOUT = 60 
+clientes_pendentes = [] 
+clientes = {}  
+clientes_telegram = set()
+
+API_TOKEN ='7359699123:AAH43iixaUcoYnsL5f_KiaK0jKDtFZ0n_K4'  
+API_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
 # 1- Função responsável por validar o nonce
 def val_nonce(transacao, nonce, bits_zero):
@@ -39,8 +42,8 @@ def atender_cliente(conn, addr):
                 break 
 
             if msg == 'G': # Requisição de transação
-                if pendentes: 
-                    transacao, bits_zero = pendentes[0] # Extraindo a primeira transaçção e o valor de bits zero
+                if clientes_pendentes: 
+                    transacao, bits_zero = clientes_pendentes[0] # Extraindo a primeira transaçção e o valor de bits zero
                     n_transacao = 1 # ID da transação
                     n_clientes = len(clientes) # Quantidade de clientes conectados
                     resposta = bytearray()
@@ -62,16 +65,16 @@ def atender_cliente(conn, addr):
             elif msg == 'S': # Requisição de Nonce
                 n_transacao, nonce = msg.split()
                 nonce = int(nonce) 
-                transacao, bits_zero = pendentes[0]
+                transacao, bits_zero = clientes_pendentes[0]
 
                 if val_nonce(transacao, nonce, bits_zero):
                     print(f'Nonce válido encontrado por {name}: {nonce}')
                     conn.sendall(n_transacao.to_bytes(2, byteorder='big') + b'V')
-                    pendentes.pop(0) # removendo a transação validada
+                    clientes_pendentes.pop(0) # removendo a transação validada
                 else: 
                     conn.sendall(n_transacao.to_bytes(2, byteorder='big') + b'R')
     except Exception as e: 
-        print(f'Ocorreu um erro ao extrai a transação do cliente: {e}')
+        print(f'Ocorreu um erro ao extrair a transação do cliente: {e}')
     
     print(f'Cliente {name} desconectado')
     conn.close()
@@ -87,15 +90,54 @@ def serv_config():
             threading.Thread(targed=atender_cliente, args=(conn, addr)).start() # Inicia uma Thread ao cliente
 
 def add_transacao():
-    while True: 
-        comando = input('Comando: ')   
-        if comando.startswith('/newtrans'):
-            transacao, bits = comando.split()
-            pendentes.append((transacao, int(bits))) # Add nova transação
-        elif comando == '/validtrans':
-            print(f'Transações validadas: {pendentes}')
-        elif comando == '/pendtrans':
-            print(f'Transações pendntes: {pendentes} ')
+    try:
+        while True: 
+            comando = input('Comando: ')   
+            if comando.startswith('/newtrans'):
+                transacao, bits = comando.split()
+                clientes_pendentes.append((transacao, int(bits))) # Add nova transação
+            elif comando == '/validtrans':
+                print(f'Transações validadas: {clientes_pendentes}')
+            elif comando == '/pendtrans':
+                print(f'Transações pendentes: {clientes_pendentes} ')
+    except Exception as e:
+        print(f'Ocorreu um erro na solicitação do comando desejado: {e}')
+
+
+def mensagens_telegram_terminal():
+    offset = 0  
+    try:
+        while True:
+            resposta = requests.get(f'{API_URL}getUpdates?offset={offset}').json()
+            mensagens = resposta.get('result', [])
+            for msg in mensagens:
+                chat_id = msg['message']['chat']['id']
+                user_name = msg['message']['chat']['first_name']
+                text = msg['message']['text']
+                clientes_telegram.add(chat_id)
+                text = f"{user_name, chat_id} no Telegram digitou: " + text
+                comandos_telegram(chat_id, text)
+                offset = msg['update_id'] + 1   
+            time.sleep(5)
+    except Exception as e:
+        print(f'Ocorreu um erro ao tentar obter a mensagem do cliente {user_name, chat_id}: {e}')
+
+def enviar_mensagem_telegram(texto):
+    for chat_id in clientes_telegram:
+        requests.get(f'{API_URL}sendMensage', params={'chat_id': chat_id, 'text': texto})
+    
+def comandos_telegram(chat_id, comando):
+    if comando == '/validtrans':
+        resposta = ('Transações validadas com êxito: ',clientes_pendentes)
+    elif comando == '/pendTrans':
+        resposta = ('Transações pendentes: ',clientes_pendentes)
+    elif comando == '/clients':
+        resposta = (f'Clientes conectados: {list(clientes.keys())}')
+    else:
+        resposta = ('O comando digitado está errado!')
+    
+    comandos_telegram(resposta)
+
 
 t= threading.Thread(target=serv_config)
 t.start()
@@ -103,5 +145,3 @@ add_transacao()
 
 
 
-# Arnaldo: ei o teu código do nonce ficou bom?  | yes | o meu tbm nao pq fiz com string invés de bytes jkkk | e como vai calcular o sha?
-# Jordan: Aquele que Galileu pediu semestre passado? | não kkkk | tbm kkkkk | show | o ruim q n ele não quer que use hashlib | pse, to encabulado com isso, fzr esse cálculo manualmente sem nem pra onde vai
