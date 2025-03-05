@@ -11,6 +11,7 @@ IP = "127.0.0.1"
 server.connect((IP, PORTA))
 
 def pedir_trans():
+    nome = input("Digite um nome com até 10 caracteres: ")
     global pedido_rec
     try:
         while True:

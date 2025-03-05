@@ -30,18 +30,31 @@ def val_nonce(transacao, nonce, bits_zero):
 
 
 def atender_cliente(conn, addr):
-    name = conn.recv(10).decode.strip() # Recebe o nome do cliente
+    
+    b_name = conn.recv(10) # Recebe o nome do cliente
+    name = b_name.decode('utf-8')
     print(f'Cliente {name} conectado em {addr}')
 
      # Registro do nome do cliente ao dicionário clientes e o registro da sua última atividade(tempo), monitorando clientes inativos
     clientes[name] = {'conexao': conn, 'ultima_atividade': time.time()}
     try: 
         while True: 
-            msg = conn.recv(4096).decode() 
+            msg = conn.recv(4096)
             if not msg: 
                 break 
 
-            if msg == 'G': # Requisição de transação
+            t_msg = msg[0]
+            if t_msg == ord('T'): # Tipo da mensagem
+                numTransacao = int.from_bytes(msg[1:3], byteorder='big')
+                numCliente = int.from_bytes(msg[3:5], byteorder='big')
+                tamJanela = int.fromm_bytes(msg[5:9], byteorder='big')
+                bitZero = msg[9]
+                tamTransacao = int.from_bytes(msg[10:14], byteorder='big')
+                transacao = msg[14:14 + tamTransacao]
+                break
+
+
+            elif msg == b'G': # Requisição de transação
                 if clientes_pendentes: 
                     transacao, bits_zero = clientes_pendentes[0] # Extraindo a primeira transaçção e o valor de bits zero
                     n_transacao = 1 # ID da transação
@@ -53,18 +66,18 @@ def atender_cliente(conn, addr):
                     resposta.extend(n_clientes.to_bytes(2, byteorder='big')) # 2 bytes para quantidade de clientes
                     resposta.extend(WINDOW_SIZE.to_bytes(4, byteorder='big')) # 4 bytes para o tamanho da janela
                     resposta.extend(bits_zero.to_bytes(1, byteorder='big')) # 1 byte para o valor de bits zero
-                    resposta.extend(len(transacao)).to_bytes(4, byteorder='big') # 4 bytes para o tamanho da transação
+                    resposta.extend(len(transacao).to_bytes(4, byteorder='big')) # 4 bytes para o tamanho da transação
 
                     # transação codificada em bytearray
-                    resposta.extend(transacao.encode)
+                    resposta.extend(transacao.encode())
                     conn.sendall(resposta)
                 
                 else:
                     conn.sendall(b'W') # Não existe transação disponível
 
-            elif msg == 'S': # Requisição de Nonce
-                n_transacao, nonce = msg.split()
-                nonce = int(nonce) 
+            elif msg == b'S': # Requisição de Nonce
+                n_transacao = int.from_bytes(msg[1:3], byteorder='big')
+                nonce = int.from_bytes(msg[3:7], byteorder='big')
                 transacao, bits_zero = clientes_pendentes[0]
 
                 if val_nonce(transacao, nonce, bits_zero):
@@ -76,7 +89,7 @@ def atender_cliente(conn, addr):
     except Exception as e: 
         print(f'Ocorreu um erro ao extrair a transação do cliente: {e}')
     
-    print(f'Cliente {name} desconectado')
+        print(f'Cliente {name} desconectado')
     conn.close()
 
 def serv_config():
@@ -87,7 +100,7 @@ def serv_config():
 
         while True:
             conn, addr = server.accept()
-            threading.Thread(targed=atender_cliente, args=(conn, addr)).start() # Inicia uma Thread ao cliente
+            threading.Thread(target=atender_cliente, args=(conn, addr)).start() # Inicia uma Thread ao cliente
 
 def add_transacao():
     try:
@@ -124,7 +137,7 @@ def mensagens_telegram_terminal():
 
 def enviar_mensagem_telegram(texto):
     for chat_id in clientes_telegram:
-        requests.get(f'{API_URL}sendMensage', params={'chat_id': chat_id, 'text': texto})
+        requests.get(f'{API_URL}sendMessage', params={'chat_id': chat_id, 'text': texto})
     
 def comandos_telegram(chat_id, comando):
     if comando == '/validtrans':
@@ -136,7 +149,7 @@ def comandos_telegram(chat_id, comando):
     else:
         resposta = ('O comando digitado está errado!')
     
-    comandos_telegram(resposta)
+    enviar_mensagem_telegram(resposta)
 
 
 t= threading.Thread(target=serv_config)
